@@ -1,0 +1,9 @@
+build/
+.idea/
+.gradle/
+*.iml
+local.properties
+
+boombox_boombox_types.c
+boombox_boombox_types.h
+

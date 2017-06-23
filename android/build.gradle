@@ -1,0 +1,170 @@
+buildscript {
+    repositories {
+        mavenLocal()
+        jcenter()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:2.3.2'
+        classpath 'me.tatarka:gradle-retrolambda:3.2.0'
+        classpath 'com.dicedmelon.gradle:jacoco-android:0.1.1'
+    }
+}
+
+repositories {
+    mavenLocal()
+    jcenter()
+    maven {
+        url 'https://maven.google.com'
+    }
+}
+
+ext {
+    compileSdkVersion = 23
+    minSdkVersion = 21
+    targetSdkVersion = 23
+    buildToolsVersion = '25.0.3'
+    versionCode = Integer.parseInt(appVersionCodeBase) + Integer.parseInt(appVersionCodeTick)
+    versionName = "${appVersion}"
+    javaSourceVersion = JavaVersion.VERSION_1_8
+    javaTargetVersion = JavaVersion.VERSION_1_8
+    androidClassesDir = "$project.buildDir/intermediates/classes/release"
+    androidLintIgnores = ['InvalidPackage', 'GradleOverrides', 'OldTargetApi',
+                          'DefaultLocale', 'GradleDependency'] as String[]
+}
+
+description = 'sigma android kromek test things'
+group = 'boombox'
+version = appVersion
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion project.ext.compileSdkVersion
+    buildToolsVersion project.ext.buildToolsVersion
+
+    defaultConfig {
+        minSdkVersion project.ext.minSdkVersion
+        targetSdkVersion project.ext.targetSdkVersion
+        versionCode project.ext.versionCode
+        versionName project.ext.versionName as String
+
+        proguardFile getDefaultProguardFile('proguard-android.txt')
+
+        jackOptions {
+            enabled true
+        }
+    }
+
+    sourceSets {
+        main {
+            java.srcDir "${project.rootDir.absolutePath}/../proto/build/gen-java"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility project.ext.javaSourceVersion
+        targetCompatibility project.ext.javaTargetVersion
+    }
+
+    packagingOptions {
+        exclude 'META-INF/LICENSE.txt'
+        exclude 'META-INF/NOTICE.txt'
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/LICENSE'
+        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/maven/**/pom.*'
+    }
+
+    lintOptions {
+        abortOnError false
+        disable project.ext.androidLintIgnores + ['BatteryLife', 'UnusedResources', 'SimpleDateFormat',
+                                                  'HardcodedText', 'IconDensities', 'IconMissingDensityFolder',
+                                                  'ContentDescription', 'LabelFor', 'SetTextI18n', 'RtlEnabled'] as String[]
+    }
+
+    testOptions {
+        unitTests.all {
+            systemProperty 'org.slf4j.simpleLogger.defaultLogLevel', 'debug'
+            systemProperty 'org.slf4j.simpleLogger.showShortLogName', 'true'
+        }
+    }
+
+    signingConfigs {
+        release {
+            storeFile file(System.getenv("ANDROID_KEYSTORE") == null ? "." : System.getenv("ANDROID_KEYSTORE"))
+            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias System.getenv("ANDROID_KEYSTORE_ALIAS")
+            keyPassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+        }
+    }
+
+    buildTypes {
+        debug {
+            multiDexEnabled true
+            debuggable true
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled true
+            debuggable false
+            signingConfig signingConfigs.release
+        }
+    }
+}
+
+if (System.getenv("ANDROID_KEYSTORE") == null) {
+    android {
+        variantFilter { variant ->
+            variant.setIgnore(variant.buildType.name == 'release')
+        }
+    }
+}
+
+configurations {
+    compile.exclude module: 'slf4j-log4j12'
+    compile.exclude module: 'jzmq'
+    compile.exclude group: 'org.apache.httpcomponents'
+    compile.exclude group: 'log4j'
+    compile.exclude group: 'commons-configuration'
+    compile.exclude module: 'jedis'
+    compile.exclude module: 'aopalliance'
+    compile.exclude group: 'sigma', module: 'cache'
+    compile.exclude group: 'sigma', module: 'rpc'
+    compile.exclude group: 'com.google.guava'
+    compile.exclude group: 'org.bouncycastle'
+    compile.exclude group: 'org.apache.kafka'
+    compile.exclude group: 'org.reflections'
+    compile.exclude module: 'inject'
+    compile.exclude group: 'cglib'
+    compile.exclude group: 'sigma', module: 'testutils'
+
+    testCompile.exclude group: 'log4j'
+    testCompile.exclude module: 'slf4j-log4j12'
+}
+
+dependencies {
+    compile 'org.apache.thrift:libthrift:0.9.3'
+    compile 'javax.annotation:jsr250-api:1.0'
+    compile 'com.android.support:appcompat-v7:24.2.1'
+    compile 'com.android.support.constraint:constraint-layout:1.1.0-beta1'
+    compile 'org.slf4j:slf4j-api:1.7.25'
+
+    testCompile 'junit:junit:4.11'
+    testCompile 'org.mockito:mockito-core:1.10.19'
+    testCompile 'org.powermock:powermock-module-junit4:1.6.4'
+    testCompile 'org.powermock:powermock-api-mockito:1.6.4'
+    testCompile 'org.slf4j:slf4j-simple:1.7.25'
+}
+
+task makeFakeMappingFile {
+    ext.mappingFile = file("$buildDir/outputs/mapping/release/mapping.txt")
+    outputs.upToDateWhen { mappingFile.exists() }
+    doLast {
+        if (!mappingFile.exists()) {
+            logger.info("proguard+android is broken so I'm generating $mappingFile\n")
+            mappingFile.getParentFile().mkdirs()
+            mappingFile.text = 'Thanks proguard+android for being soooooo broken\n'
+        }
+    }
+}
+
+uploadArchives.dependsOn makeFakeMappingFile

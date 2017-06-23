@@ -1,0 +1,5 @@
+<resources>
+    <string name="title_activity_main">BoomBox</string>
+    <string name="title_activity_config">Launcher Config</string>
+    <string name="button_fire">Fire!</string>
+</resources>
