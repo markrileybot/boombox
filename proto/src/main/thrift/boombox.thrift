@@ -10,7 +10,8 @@ enum MessageType {
 	ERROR,
 	LAUNCH,
 	GET_STATE,
-	SET_CONFIG
+	SET_CONFIG,
+	RESET
 }
 
 struct Message {

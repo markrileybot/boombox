@@ -21,6 +21,7 @@ import boombox.proto.GetLaunchTubeStateResponse;
 import boombox.proto.Launch;
 import boombox.proto.LaunchResponse;
 import boombox.proto.LaunchTube;
+import boombox.proto.LaunchTubeState;
 import boombox.proto.Message;
 import boombox.proto.MessageType;
 import boombox.proto.SetConfigResponse;
@@ -32,11 +33,8 @@ import org.apache.thrift.transport.TMemoryBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 public class LauncherService extends Service implements Handler.Callback {
@@ -55,7 +53,7 @@ public class LauncherService extends Service implements Handler.Callback {
 	private static final int MSG_CLOSE = 0x005;
 	private static final int MSG_REMOVE_CONNECTION = 0x006;
 	private static final int MSG_ADD_CONNECTION = 0x007;
-	private static final int MSG_INIT_STATE = 0x008;
+	private static final int MSG_INIT = 0x008;
 	private static final int MSG_LAUNCH = 0x009;
 
 	private final LauncherController launcherController = new LauncherController(this);
@@ -64,6 +62,7 @@ public class LauncherService extends Service implements Handler.Callback {
 	private BluetoothDevice device;
 	private Connection connection;
 	private Launcher launcher;
+	private State connectionState;
 
 	private final Handler handler = new Handler(this);
 	private LauncherListener launcherListener;
@@ -117,11 +116,27 @@ public class LauncherService extends Service implements Handler.Callback {
 				break;
 			case MSG_OPEN_CONNECTION:
 				log.info("Open connection");
-				connection.open();
+				if (connection != null) {
+					connection.open();
+				}
+				if (launcher != null) {
+					launcher.setState(Launcher.State.BUSY);
+					if (launcherListener != null) {
+						launcherListener.onStateChanged(launcher);
+					}
+				}
 				break;
 			case MSG_CLOSE_CONNECTION:
 				log.info("Close connection");
-				connection.close();
+				if (connection != null) {
+					connection.close();
+				}
+				if (launcher != null) {
+					launcher.setState(Launcher.State.CLOSED);
+					if (launcherListener != null) {
+						launcherListener.onStateChanged(launcher);
+					}
+				}
 				break;
 			case MSG_ADD_CONNECTION:
 				log.info("Add connection");
@@ -138,21 +153,23 @@ public class LauncherService extends Service implements Handler.Callback {
 				break;
 			case MSG_REMOVE_CONNECTION:
 				log.info("Remove connection");
+				Launcher old = launcher;
 				devices.remove(device);
 				device = null;
 				connection = null;
 				launcher = null;
+				if (old != null && launcherListener != null) {
+					old.setState(Launcher.State.CLOSED);
+					launcherListener.onLost(old);
+				}
 				break;
-			case MSG_INIT_STATE:
+			case MSG_INIT:
 				try {
-					GetLaunchTubeStateResponse response = launcherController.send(connection, new GetLaunchTubeState());
+					launcherController.send(connection, new GetLaunchTubeState());
 					launcher = new Launcher(connection.getDevice());
-					launcher.getLaunchTubes().clear();
-					if (response.isSetTubes()) {
-						launcher.getLaunchTubes().addAll(response.tubes);
-					}
+					launcher.setState(Launcher.State.IDLE);
 					if (launcherListener != null) {
-						launcherListener.onLauncherDiscovered(launcher);
+						launcherListener.onFound(launcher);
 					}
 				} catch (Exception e) {
 					log.error("Failed to get state", e);
@@ -160,9 +177,18 @@ public class LauncherService extends Service implements Handler.Callback {
 				}
 				break;
 			case MSG_LAUNCH:
+				launcher.setState(Launcher.State.BUSY);
+				if (launcherListener != null) {
+					launcherListener.onStateChanged(launcher);
+				}
 				Launch launch = new Launch().setTubes((List<LaunchTube>) msg.obj);
 				try {
 					LaunchResponse response = launcherController.send(launcher, launch);
+					if (launch.isSetTubes()) {
+						for (LaunchTube tube : launch.tubes) {
+							tube.setState(LaunchTubeState.FIRED);
+						}
+					}
 					if (launcherListener != null) {
 						launcherListener.onLaunchComplete(launch, response);
 					}
@@ -170,6 +196,11 @@ public class LauncherService extends Service implements Handler.Callback {
 					log.error("Failed to launch", e);
 					if (launcherListener != null) {
 						launcherListener.onLaunchFailed(launch);
+					}
+				} finally {
+					launcher.setState(Launcher.State.IDLE);
+					if (launcherListener != null) {
+						launcherListener.onStateChanged(launcher);
 					}
 				}
 				break;
@@ -183,8 +214,9 @@ public class LauncherService extends Service implements Handler.Callback {
 	}
 
 	private void onStateChanged(Connection connection, State from, State to) {
+		connectionState = to;
 		if (from.isOpening() && to == State.OPEN) {
-			android.os.Message message = handler.obtainMessage(MSG_INIT_STATE, connection);
+			android.os.Message message = handler.obtainMessage(MSG_INIT, connection);
 			handler.sendMessageDelayed(message, 1000);
 		} else if (to == State.CLOSED) {
 			if (open) {
@@ -193,6 +225,9 @@ public class LauncherService extends Service implements Handler.Callback {
 			} else {
 				handler.obtainMessage(MSG_REMOVE_CONNECTION, connection).sendToTarget();
 			}
+		}
+		if (launcherListener != null) {
+			launcherListener.onStateChanged(launcher);
 		}
 	}
 
@@ -209,6 +244,14 @@ public class LauncherService extends Service implements Handler.Callback {
 			service.handler.sendEmptyMessage(MSG_CLOSE);
 		}
 
+		public void reset() {
+			service.handler.sendEmptyMessage(MSG_CLOSE_CONNECTION);
+		}
+
+		public State getState() {
+			return service.connectionState == null ? State.CLOSED : service.connectionState;
+		}
+
 		public void scan() {
 			service.handler.sendEmptyMessage(MSG_START_SCAN);
 		}
@@ -222,6 +265,10 @@ public class LauncherService extends Service implements Handler.Callback {
 		}
 
 		public void launch(List<LaunchTube> tubes) {
+			service.launcher.setState(Launcher.State.BUSY);
+			if (service.launcherListener != null) {
+				service.launcherListener.onStateChanged(service.launcher);
+			}
 			service.handler.obtainMessage(MSG_LAUNCH, tubes).sendToTarget();
 		}
 

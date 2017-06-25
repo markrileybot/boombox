@@ -10,11 +10,13 @@
 extern "C" {
 #endif
 
-bool server_init(io_handler handler);
+bool server_init();
 
 bool server_reset();
 
-bool server_process(const byte* chunk, unsigned int len);
+bool server_receive(const byte* chunk, unsigned int len);
+
+bool server_poll(const byte** resp, unsigned int *len);
 
 #ifdef __cplusplus
 }

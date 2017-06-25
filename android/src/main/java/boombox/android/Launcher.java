@@ -1,15 +1,16 @@
 package boombox.android;
 
 import android.bluetooth.BluetoothDevice;
-import boombox.proto.LaunchTube;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public class Launcher {
 
-	private final List<LaunchTube> launchTubes = new ArrayList<>(1);
+	public enum State {
+		CLOSED, BUSY, IDLE
+	}
+
+	private final LaunchTubeGroup launchTubes = new LaunchTubeGroup(8, 2);
 	private final BluetoothDevice device;
+	private State state = State.IDLE;
 
 	public Launcher(BluetoothDevice device) {
 		this.device = device;
@@ -19,8 +20,20 @@ public class Launcher {
 		return device;
 	}
 
-	public List<LaunchTube> getLaunchTubes() {
+	public String getName() {
+		return device.getName();
+	}
+
+	public LaunchTubeGroup getLaunchTubes() {
 		return launchTubes;
+	}
+
+	public State getState() {
+		return state;
+	}
+
+	public void setState(State state) {
+		this.state = state;
 	}
 
 	@Override

@@ -1,12 +1,12 @@
-
 #include <Arduino.h>
-#include "server.h"
 #include <thrift_nano.h>
+#include <SparkFunSX1509.h>
+#include "server.h"
 #include "boombox_boombox_types.h"
 
 char *magic_footer = (char[]) {BOOMBOX_MAGIC0, BOOMBOX_MAGIC1, BOOMBOX_MAGIC2, BOOMBOX_MAGIC3};
 
-io_handler response_handler;
+SX1509 relay_io;
 
 struct tn_transport_memory_t mem_transport;
 tn_transport_t *transport;
@@ -20,9 +20,10 @@ boombox_get_launch_tube_state_t             *state_command;
 boombox_get_launch_tube_state_response_t    *state_command_response;
 boombox_error_t                             *error_response;
 
-bool server_init(io_handler cb) {
+bool buffer_full = false;
+
+bool server_init() {
   tn_error_t error = T_ERR_OK;
-  response_handler = cb;
   
   tn_init();
   
@@ -51,6 +52,14 @@ bool server_init(io_handler cb) {
     return false;
   }
 
+  if(!relay_io.begin(0x3E)) {
+    return false;
+  }
+
+  for (int i = 0; i < 16; i++) {
+    relay_io.pinMode(i, OUTPUT);
+  }
+
   buf = mem_transport.buf;
   return true;
 }
@@ -64,36 +73,14 @@ bool server_reset() {
   tn_object_reset(state_command);
   tn_object_reset(state_command_response);
   tn_object_reset(error_response);
+  for (int i = 0; i < 16; i++) {
+    relay_io.pinMode(i, LOW);
+  }
   return true;
 }
 
-void * server_process_launch() {
-  boombox_launch_tube_t *v;
-  if (launch_command->tubes != NULL) {
-    size_t size = launch_command->tubes->elem_count;
-    for(size_t i = 0; i < size; i++) {
-      v = *(boombox_launch_tube_t**)tn_list_get(launch_command->tubes, i);
-      Serial.print("FIRE: ");
-      Serial.println(v->position);
-      digitalWrite(v->position, HIGH);
-    }
-    delay(100);
-    for(size_t i = 0; i < size; i++) {
-      v = *(boombox_launch_tube_t**)tn_list_get(launch_command->tubes, i);
-      digitalWrite(v->position, LOW);
-    }
-    return launch_command_response;
-  }
-  return NULL;
-}
-
-void * server_process_get_state() {
-  return state_command_response;
-}
-
-bool server_process(const byte *val, unsigned int msgLen) {
+bool server_receive(const byte *val, unsigned int msgLen) {
   tn_error_t error = T_ERR_OK;
-  void *response = NULL;
 
   // append the data to the message buffer
   if (msgLen > 0) {
@@ -105,8 +92,53 @@ bool server_process(const byte *val, unsigned int msgLen) {
   void *foot = buf->buf + (len - 4);
   if (len >= 4 && memcmp(foot, magic_footer, 4) == 0) {
     tn_transport_memory_rewind(&mem_transport);
+    buffer_full = true;
+  }
+
+  return true;
+}
+
+void * server_process_launch() {
+  boombox_launch_tube_t *v;
+  if (launch_command->tubes != NULL) {
+    size_t size = launch_command->tubes->elem_count;
+    Serial.print("NUmber of tubes ");
+    Serial.println(size);
+    for(size_t i = 0; i < size; i++) {
+      v = *(boombox_launch_tube_t**)tn_list_get(launch_command->tubes, i);
+      Serial.print("FIRE: ");
+      Serial.println(v->position);
+      relay_io.digitalWrite(v->position, HIGH);
+    }
+    delay(1000);
+    for(size_t i = 0; i < size; i++) {
+      Serial.print("FIRED: ");
+      Serial.println(v->position);
+      v = *(boombox_launch_tube_t**)tn_list_get(launch_command->tubes, i);
+      relay_io.digitalWrite(v->position, LOW);
+    }
+  }
+  return launch_command_response;
+}
+
+void * server_process_get_state() {
+  return state_command_response;
+}
+
+void server_process_reset() {
+  for (int i = 0; i < 16; i++) {
+    relay_io.pinMode(i, LOW);
+  }  
+}
+
+bool server_poll(const byte** resp, unsigned int *len) {
+  if (buffer_full) {
+    buffer_full = false;
+    void *response = NULL;
+    tn_error_t error = T_ERR_OK;
+    
     Serial.print("0 POS=");
-    Serial.println(len);
+    Serial.println(buf->len);
     tn_object_reset(message_header);
     tn_struct_read(message_header, protocol, transport, &error);
     switch (message_header->type) {
@@ -118,6 +150,9 @@ bool server_process(const byte *val, unsigned int msgLen) {
         tn_struct_read(state_command, protocol, transport, &error);
         response = server_process_get_state();
         break;        
+      case BOOMBOX_MESSAGE_TYPE_RESET:
+        server_process_reset();
+        break;
       default:
         message_header->type = BOOMBOX_MESSAGE_TYPE_ERROR;
         response = error_response;
@@ -135,13 +170,15 @@ bool server_process(const byte *val, unsigned int msgLen) {
     tn_transport_write(transport, magic_footer, 4, &error);
     Serial.print("2 POS=");
     Serial.println(buf->len);
-    response_handler((const byte*) buf->buf, buf->len);
+    *resp = (const byte*) buf->buf;
+    *len = buf->len;
 
     tn_object_reset(transport);
     tn_object_reset(protocol);
     tn_object_reset(message_header);
+    return true;
   }
-
-  return true;
+  return false;
 }
+
 

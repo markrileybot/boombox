@@ -22,7 +22,7 @@ ext {
     compileSdkVersion = 23
     minSdkVersion = 21
     targetSdkVersion = 23
-    buildToolsVersion = '25.0.3'
+    buildToolsVersion = '26.0.0'
     versionCode = Integer.parseInt(appVersionCodeBase) + Integer.parseInt(appVersionCodeTick)
     versionName = "${appVersion}"
     javaSourceVersion = JavaVersion.VERSION_1_8
@@ -121,21 +121,8 @@ if (System.getenv("ANDROID_KEYSTORE") == null) {
 
 configurations {
     compile.exclude module: 'slf4j-log4j12'
-    compile.exclude module: 'jzmq'
     compile.exclude group: 'org.apache.httpcomponents'
     compile.exclude group: 'log4j'
-    compile.exclude group: 'commons-configuration'
-    compile.exclude module: 'jedis'
-    compile.exclude module: 'aopalliance'
-    compile.exclude group: 'sigma', module: 'cache'
-    compile.exclude group: 'sigma', module: 'rpc'
-    compile.exclude group: 'com.google.guava'
-    compile.exclude group: 'org.bouncycastle'
-    compile.exclude group: 'org.apache.kafka'
-    compile.exclude group: 'org.reflections'
-    compile.exclude module: 'inject'
-    compile.exclude group: 'cglib'
-    compile.exclude group: 'sigma', module: 'testutils'
 
     testCompile.exclude group: 'log4j'
     testCompile.exclude module: 'slf4j-log4j12'
