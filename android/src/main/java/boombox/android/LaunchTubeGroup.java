@@ -1,8 +1,10 @@
 package boombox.android;
 
-import boombox.proto.LaunchTube;
+import boombox.android.proto.LaunchTube;
 
-public class LaunchTubeGroup {
+import java.util.Iterator;
+
+public class LaunchTubeGroup  implements Iterable<LaunchTube> {
 
 	private final LaunchTube[][] matrix;
 	private final int rows;
@@ -42,5 +44,29 @@ public class LaunchTubeGroup {
 		int row = position / cols;
 		int col = position - (row * cols);
 		return matrix[col][row];
+	}
+
+	@Override
+	public Iterator<LaunchTube> iterator() {
+		return new Iter();
+	}
+
+	private final class Iter implements Iterator<LaunchTube> {
+		private int pos;
+
+		@Override
+		public boolean hasNext() {
+			return pos < getSize();
+		}
+
+		@Override
+		public LaunchTube next() {
+			return getAt(pos++);
+		}
+
+		@Override
+		public void remove() {
+
+		}
 	}
 }

@@ -7,6 +7,7 @@ import android.bluetooth.le.ScanResult;
 import android.content.Intent;
 import android.os.Binder;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.IBinder;
 import android.support.v4.app.NotificationCompat.Builder;
 import android.support.v4.app.NotificationManagerCompat;
@@ -15,35 +16,23 @@ import boombox.android.blespp.Connection.State;
 import boombox.android.blespp.GattInputStream;
 import boombox.android.blespp.GattOutputStream;
 import boombox.android.blespp.Scanner;
-import boombox.proto.Error;
-import boombox.proto.GetLaunchTubeState;
-import boombox.proto.GetLaunchTubeStateResponse;
-import boombox.proto.Launch;
-import boombox.proto.LaunchResponse;
-import boombox.proto.LaunchTube;
-import boombox.proto.LaunchTubeState;
-import boombox.proto.Message;
-import boombox.proto.MessageType;
-import boombox.proto.SetConfigResponse;
-import boombox.proto.boomboxConstants;
-import org.apache.thrift.TBase;
-import org.apache.thrift.protocol.TCompactProtocol;
-import org.apache.thrift.transport.TIOStreamTransport;
-import org.apache.thrift.transport.TMemoryBuffer;
+import boombox.android.proto.Launch;
+import boombox.android.proto.LaunchTube;
+import boombox.android.proto.Message;
+import boombox.android.proto.Message.Type;
+import boombox.android.proto.SequenceItem;
+import com.google.common.io.LittleEndianDataInputStream;
+import com.google.common.io.LittleEndianDataOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 public class LauncherService extends Service implements Handler.Callback {
 
-	private static final byte[] FOOTER_MAGIC = {
-			boomboxConstants.MAGIC0,
-			boomboxConstants.MAGIC1,
-			boomboxConstants.MAGIC2,
-			boomboxConstants.MAGIC3};
 	private static final Logger log = LoggerFactory.getLogger(LauncherService.class);
 
 	private static final int MSG_START_SCAN = 0x001;
@@ -55,31 +44,39 @@ public class LauncherService extends Service implements Handler.Callback {
 	private static final int MSG_ADD_CONNECTION = 0x007;
 	private static final int MSG_INIT = 0x008;
 	private static final int MSG_LAUNCH = 0x009;
+	private static final int MSG_RESET = 0x0A;
 
 	private final LauncherController launcherController = new LauncherController(this);
 
 	private final Set<BluetoothDevice> devices = new HashSet<>(1);
+	private final Handler handler;
+
 	private BluetoothDevice device;
 	private Connection connection;
 	private Launcher launcher;
 	private State connectionState;
 
-	private final Handler handler = new Handler(this);
 	private LauncherListener launcherListener;
-	private Notification notification;
 	private NotificationManagerCompat notificationManager;
+	private Notification notification;
 	private Scanner scanner;
 	private boolean open;
 
+	public LauncherService() {
+		HandlerThread handlerThread = new HandlerThread("LauncherWorker");
+		handlerThread.start();
+		handler = new Handler(handlerThread.getLooper(),this);
+	}
+
 	@Override
 	public void onCreate() {
-		log.warn("Launcher service init");
 		notificationManager = NotificationManagerCompat.from(this);
 		notification = new Builder(this)
 				.setAutoCancel(false)
 				.setOngoing(true)
 				.setContentTitle("Launch Control")
 				.setContentText("Idle")
+				.setSmallIcon(R.drawable.icon)
 				.build();
 		startForeground(0, notification);
 		scanner = new Scanner(this, new ScannerCallback());
@@ -145,7 +142,7 @@ public class LauncherService extends Service implements Handler.Callback {
 				Connection conn = new Connection.Builder()
 						.setContext(LauncherService.this)
 						.setDevice(device)
-						.setTimeout(10000)
+						.setTimeout(5000)
 						.setCallback(this::onStateChanged)
 						.build();
 				connection = conn;
@@ -164,16 +161,23 @@ public class LauncherService extends Service implements Handler.Callback {
 				}
 				break;
 			case MSG_INIT:
-				try {
-					launcherController.send(connection, new GetLaunchTubeState());
+				if (launcher == null || !launcher.getDevice().equals(connection.getDevice())) {
 					launcher = new Launcher(connection.getDevice());
-					launcher.setState(Launcher.State.IDLE);
+				}
+				launcher.setState(Launcher.State.BUSY);
+				try {
 					if (launcherListener != null) {
 						launcherListener.onFound(launcher);
 					}
+					launcherController.send(connection, new Message().setType(Type.PING));
 				} catch (Exception e) {
 					log.error("Failed to get state", e);
 					handler.obtainMessage(MSG_CLOSE_CONNECTION, connection).sendToTarget();
+				} finally {
+					launcher.setState(Launcher.State.IDLE);
+					if (launcherListener != null) {
+						launcherListener.onStateChanged(launcher);
+					}
 				}
 				break;
 			case MSG_LAUNCH:
@@ -181,22 +185,40 @@ public class LauncherService extends Service implements Handler.Callback {
 				if (launcherListener != null) {
 					launcherListener.onStateChanged(launcher);
 				}
-				Launch launch = new Launch().setTubes((List<LaunchTube>) msg.obj);
+				Launch launch = new Launch().setSequence((List<SequenceItem>) msg.obj);
 				try {
-					LaunchResponse response = launcherController.send(launcher, launch);
-					if (launch.isSetTubes()) {
-						for (LaunchTube tube : launch.tubes) {
-							tube.setState(LaunchTubeState.FIRED);
-						}
+					launcherController.send(launcher, new Message().setPayload(launch));
+					LaunchTubeGroup launchTubes = launcher.getLaunchTubes();
+					for (SequenceItem i : launch.getSequence()) {
+						launchTubes.getAt(i.getTube()).setState(LaunchTube.State.FIRED);
 					}
 					if (launcherListener != null) {
-						launcherListener.onLaunchComplete(launch, response);
+						launcherListener.onLaunchComplete(launch);
 					}
 				} catch (Exception e) {
 					log.error("Failed to launch", e);
 					if (launcherListener != null) {
 						launcherListener.onLaunchFailed(launch);
 					}
+				} finally {
+					launcher.setState(Launcher.State.IDLE);
+					if (launcherListener != null) {
+						launcherListener.onStateChanged(launcher);
+					}
+				}
+				break;
+			case MSG_RESET:
+				launcher.setState(Launcher.State.BUSY);
+				if (launcherListener != null) {
+					launcherListener.onStateChanged(launcher);
+				}
+				try {
+					launcherController.send(launcher, new Message().setType(Type.RESET));
+					for (LaunchTube launchTube : launcher.getLaunchTubes()) {
+						launchTube.setState(LaunchTube.State.ARMED);
+					}
+				} catch (Exception e) {
+					log.error("Failed to reset", e);
 				} finally {
 					launcher.setState(Launcher.State.IDLE);
 					if (launcherListener != null) {
@@ -245,7 +267,7 @@ public class LauncherService extends Service implements Handler.Callback {
 		}
 
 		public void reset() {
-			service.handler.sendEmptyMessage(MSG_CLOSE_CONNECTION);
+			service.handler.sendEmptyMessage(MSG_RESET);
 		}
 
 		public State getState() {
@@ -264,65 +286,30 @@ public class LauncherService extends Service implements Handler.Callback {
 			service.launcherListener = l;
 		}
 
-		public void launch(List<LaunchTube> tubes) {
-			service.launcher.setState(Launcher.State.BUSY);
-			if (service.launcherListener != null) {
-				service.launcherListener.onStateChanged(service.launcher);
-			}
-			service.handler.obtainMessage(MSG_LAUNCH, tubes).sendToTarget();
+		public void launch(List<SequenceItem> sequence) {
+			service.handler.obtainMessage(MSG_LAUNCH, sequence).sendToTarget();
 		}
 
-		private <REP extends TBase> REP send(Launcher launcher, TBase req) throws Exception {
+		private Message send(Launcher launcher, Message req) throws Exception {
 			return send(service.connection, req);
 		}
 
 		@SuppressWarnings("unchecked")
-		private <REP extends TBase> REP send(Connection connection, TBase req) throws Exception {
-			MessageType messageType = null;
-			if (req instanceof Launch) {
-				messageType = MessageType.LAUNCH;
-			} else if (req instanceof GetLaunchTubeState) {
-				messageType = MessageType.GET_STATE;
-			} else {
-				throw new RuntimeException("Invalid request " + req);
-			}
-
+		private Message send(Connection connection, Message req) throws Exception {
+			req.setSequence(reqId++);
+			ByteArrayOutputStream out = new ByteArrayOutputStream(256);
+			req.write(new LittleEndianDataOutputStream(out));
 			GattOutputStream outputStream = connection.getOutputStream();
-			TMemoryBuffer buffer = new TMemoryBuffer(20);
-			TCompactProtocol protocol = new TCompactProtocol(buffer);
-			new Message()
-					.setId(reqId++)
-					.setType(messageType)
-					.write(protocol);
-			req.write(protocol);
-			buffer.write(FOOTER_MAGIC);
-			outputStream.write(buffer.getArray(), 0, buffer.length());
+			outputStream.write(out.toByteArray(), 0, out.size());
 
 			GattInputStream inputStream = connection.getInputStream();
 			inputStream.clear();
-			protocol = new TCompactProtocol(new TIOStreamTransport(inputStream));
-			Message message = new Message();
-			message.read(protocol);
-			switch (message.type) {
-				case ERROR:
-					Error error = new Error();
-					error.read(protocol);
-					throw new RuntimeException("Something went wrong " + error);
-				case LAUNCH:
-					LaunchResponse launchResponse = new LaunchResponse();
-					launchResponse.read(protocol);
-					return (REP) launchResponse;
-				case GET_STATE:
-					GetLaunchTubeStateResponse getLaunchTubeStateResponse = new GetLaunchTubeStateResponse();
-					getLaunchTubeStateResponse.read(protocol);
-					return (REP) getLaunchTubeStateResponse;
-				case SET_CONFIG:
-					SetConfigResponse setConfigResponse = new SetConfigResponse();
-					setConfigResponse.read(protocol);
-					return (REP) setConfigResponse;
-				default:
-					throw new RuntimeException("Invalid response " + message);
+			req.read(new LittleEndianDataInputStream(inputStream));
+
+			if (req.getType() == Type.ERROR) {
+				throw new RuntimeException("Something went wrong!");
 			}
+			return req;
 		}
 	}
 

@@ -133,6 +133,7 @@ dependencies {
     compile 'javax.annotation:jsr250-api:1.0'
     compile 'com.android.support:appcompat-v7:24.2.1'
     compile 'com.android.support.constraint:constraint-layout:1.1.0-beta1'
+    compile 'com.google.guava:guava:18.0'
     compile 'org.slf4j:slf4j-api:1.7.25'
 
     testCompile 'junit:junit:4.11'

@@ -11,7 +11,6 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
 import android.widget.BaseAdapter;
 import android.widget.CompoundButton;
 import android.widget.CompoundButton.OnCheckedChangeListener;
@@ -19,10 +18,9 @@ import android.widget.GridView;
 import android.widget.ToggleButton;
 import boombox.android.LauncherService.LauncherController;
 import boombox.android.blespp.Connection.State;
-import boombox.proto.Launch;
-import boombox.proto.LaunchResponse;
-import boombox.proto.LaunchTube;
-import boombox.proto.LaunchTubeState;
+import boombox.android.proto.Launch;
+import boombox.android.proto.LaunchTube;
+import boombox.android.proto.SequenceItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.impl.ALogger;
@@ -105,9 +103,13 @@ public class MainActivity extends AppCompatActivity implements LauncherListener 
 	public boolean onOptionsItemSelected(MenuItem item) {
 		if (item.getItemId() == R.id.fire) {
 			// fire
-			List<LaunchTube> tubesToFire = new ArrayList<>(launcherAdapter.getSelection());
-			if (!tubesToFire.isEmpty()) {
-				connection.launch(tubesToFire);
+			List<LaunchTube> selection = launcherAdapter.getSelection();
+			if (!selection.isEmpty()) {
+				List<SequenceItem> launchSequence = new ArrayList<>(selection.size());
+				for (LaunchTube launchTube : selection) {
+					launchSequence.add(new SequenceItem((short) 100, launchTube.getPosition()));
+				}
+				connection.launch(launchSequence);
 				launcherAdapter.clearSelection();
 				int childCount = tubeGroupView.getChildCount();
 				for (int i = 0; i < childCount; i++) {
@@ -124,36 +126,38 @@ public class MainActivity extends AppCompatActivity implements LauncherListener 
 
 	@Override
 	public void onFound(Launcher launcher) {
-		this.launcher = launcher;
-		updateState();
+		runOnUiThread(() -> {
+			this.launcher = launcher;
+			updateState();
+		});
 	}
 
 	@Override
 	public void onLost(Launcher launcher) {
-		this.launcher = null;
-		updateState();
+		runOnUiThread(() -> {
+			this.launcher = null;
+			updateState();
+		});
 	}
 
 	@Override
-	public void onLaunchComplete(Launch request, LaunchResponse response) {
-		updateState();
+	public void onLaunchComplete(Launch request) {
+		runOnUiThread(this::updateState);
 	}
 
 	@Override
 	public void onLaunchFailed(Launch request) {
-		updateState();
+		runOnUiThread(this::updateState);
 	}
 
 	@Override
 	public void onStateChanged(Launcher launcher) {
-		updateState();
+		runOnUiThread(this::updateState);
 	}
 
 	private void updateState() {
-		runOnUiThread(() -> {
-			setEnabled(launcher != null && launcher.getState() == Launcher.State.IDLE);
-			launcherAdapter.update();
-		});
+		setEnabled(launcher != null && launcher.getState() == Launcher.State.IDLE);
+		launcherAdapter.update();
 	}
 
 	private void setEnabled(boolean enabled) {
@@ -201,16 +205,16 @@ public class MainActivity extends AppCompatActivity implements LauncherListener 
 			}
 			ToggleButton tubeButton = (ToggleButton) convertView.findViewById(R.id.position);
 			LaunchTube tube = launcher.getLaunchTubes().getAt(position);
-			tubeButton.setTextOff(String.valueOf(tube.position));
-			tubeButton.setTextOn(String.valueOf(tube.position));
-			tubeButton.setText(String.valueOf(tube.position));
-			tubeButton.setEnabled(ready && tube.getState() != LaunchTubeState.FIRED);
+			String label = String.valueOf(tube.getPosition());
+			tubeButton.setTextOff(label);
+			tubeButton.setTextOn(label);
+			tubeButton.setText(label);
+			tubeButton.setEnabled(ready && tube.getState() != LaunchTube.State.FIRED);
 			tubeButton.setTag(tube);
 			tubeButton.setOnCheckedChangeListener(this);
 			return convertView;
 		}
 
-		@SuppressWarnings("SuspiciousMethodCalls")
 		@Override
 		public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
 			if (isChecked) {
@@ -253,7 +257,7 @@ public class MainActivity extends AppCompatActivity implements LauncherListener 
 			return connected ? launcherController.getState() : null;
 		}
 
-		public void launch(List<LaunchTube> tubes) {
+		public void launch(List<SequenceItem> tubes) {
 			if (connected) {
 				launcherController.launch(tubes);
 			}

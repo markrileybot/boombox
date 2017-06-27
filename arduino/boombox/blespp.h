@@ -11,7 +11,15 @@ extern "C" {
 
 bool blespp_init(io_handler h1, reset_handler h2);
 
+void blespp_open();
+
+void blespp_close();
+
+bool blespp_is_open();
+
 bool blespp_send(const byte* msg, unsigned int len);
+
+void blespp_poll();
 
 #ifdef __cplusplus
 }
