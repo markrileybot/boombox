@@ -28,7 +28,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 public class LauncherService extends Service implements Handler.Callback {
@@ -47,7 +46,7 @@ public class LauncherService extends Service implements Handler.Callback {
 	private static final int MSG_RESET = 0x0A;
 
 	private final LauncherController launcherController = new LauncherController(this);
-
+	private final LauncherStateController launcherState = new LauncherStateController();
 	private final Set<BluetoothDevice> devices = new HashSet<>(1);
 	private final Handler handler;
 
@@ -56,7 +55,6 @@ public class LauncherService extends Service implements Handler.Callback {
 	private Launcher launcher;
 	private State connectionState;
 
-	private LauncherListener launcherListener;
 	private NotificationManagerCompat notificationManager;
 	private Notification notification;
 	private Scanner scanner;
@@ -78,7 +76,8 @@ public class LauncherService extends Service implements Handler.Callback {
 				.setContentText("Idle")
 				.setSmallIcon(R.drawable.icon)
 				.build();
-		startForeground(0, notification);
+		startForeground(1, notification);
+		notificationManager.notify(1, notification);
 		scanner = new Scanner(this, new ScannerCallback());
 	}
 
@@ -102,137 +101,141 @@ public class LauncherService extends Service implements Handler.Callback {
 	public boolean handleMessage(android.os.Message msg) {
 		switch (msg.what) {
 			case MSG_START_SCAN:
-				log.info("Start scan");
-				open = true;
-				scanner.scan();
-				handler.sendEmptyMessageDelayed(MSG_STOP_SCAN, 60000);
+				handleStartScan();
 				break;
 			case MSG_STOP_SCAN:
-				log.info("Stop scan");
-				scanner.stop();
+				handleStopScan();
 				break;
 			case MSG_OPEN_CONNECTION:
-				log.info("Open connection");
-				if (connection != null) {
-					connection.open();
-				}
-				if (launcher != null) {
-					launcher.setState(Launcher.State.BUSY);
-					if (launcherListener != null) {
-						launcherListener.onStateChanged(launcher);
-					}
-				}
+				handleOpenConnection();
 				break;
 			case MSG_CLOSE_CONNECTION:
-				log.info("Close connection");
-				if (connection != null) {
-					connection.close();
-				}
-				if (launcher != null) {
-					launcher.setState(Launcher.State.CLOSED);
-					if (launcherListener != null) {
-						launcherListener.onStateChanged(launcher);
-					}
-				}
+				handleCloseConnection();
 				break;
 			case MSG_ADD_CONNECTION:
-				log.info("Add connection");
-				device = (BluetoothDevice) msg.obj;
-				devices.add(device);
-				Connection conn = new Connection.Builder()
-						.setContext(LauncherService.this)
-						.setDevice(device)
-						.setTimeout(5000)
-						.setCallback(this::onStateChanged)
-						.build();
-				connection = conn;
-				handler.obtainMessage(MSG_OPEN_CONNECTION, conn).sendToTarget();
+				handleCreateConnection(msg);
 				break;
 			case MSG_REMOVE_CONNECTION:
-				log.info("Remove connection");
-				Launcher old = launcher;
-				devices.remove(device);
-				device = null;
-				connection = null;
-				launcher = null;
-				if (old != null && launcherListener != null) {
-					old.setState(Launcher.State.CLOSED);
-					launcherListener.onLost(old);
-				}
+				handleDestroyConnection();
 				break;
 			case MSG_INIT:
-				if (launcher == null || !launcher.getDevice().equals(connection.getDevice())) {
-					launcher = new Launcher(connection.getDevice());
-				}
-				launcher.setState(Launcher.State.BUSY);
-				try {
-					if (launcherListener != null) {
-						launcherListener.onFound(launcher);
-					}
-					launcherController.send(connection, new Message().setType(Type.PING));
-				} catch (Exception e) {
-					log.error("Failed to get state", e);
-					handler.obtainMessage(MSG_CLOSE_CONNECTION, connection).sendToTarget();
-				} finally {
-					launcher.setState(Launcher.State.IDLE);
-					if (launcherListener != null) {
-						launcherListener.onStateChanged(launcher);
-					}
-				}
+				handleLauncherInit();
 				break;
 			case MSG_LAUNCH:
-				launcher.setState(Launcher.State.BUSY);
-				if (launcherListener != null) {
-					launcherListener.onStateChanged(launcher);
-				}
-				Launch launch = new Launch().setSequence((List<SequenceItem>) msg.obj);
-				try {
-					launcherController.send(launcher, new Message().setPayload(launch));
-					LaunchTubeGroup launchTubes = launcher.getLaunchTubes();
-					for (SequenceItem i : launch.getSequence()) {
-						launchTubes.getAt(i.getTube()).setState(LaunchTube.State.FIRED);
-					}
-					if (launcherListener != null) {
-						launcherListener.onLaunchComplete(launch);
-					}
-				} catch (Exception e) {
-					log.error("Failed to launch", e);
-					if (launcherListener != null) {
-						launcherListener.onLaunchFailed(launch);
-					}
-				} finally {
-					launcher.setState(Launcher.State.IDLE);
-					if (launcherListener != null) {
-						launcherListener.onStateChanged(launcher);
-					}
-				}
+				handleLauncherLaunch(msg);
 				break;
 			case MSG_RESET:
-				launcher.setState(Launcher.State.BUSY);
-				if (launcherListener != null) {
-					launcherListener.onStateChanged(launcher);
-				}
-				try {
-					launcherController.send(launcher, new Message().setType(Type.RESET));
-					for (LaunchTube launchTube : launcher.getLaunchTubes()) {
-						launchTube.setState(LaunchTube.State.ARMED);
-					}
-				} catch (Exception e) {
-					log.error("Failed to reset", e);
-				} finally {
-					launcher.setState(Launcher.State.IDLE);
-					if (launcherListener != null) {
-						launcherListener.onStateChanged(launcher);
-					}
-				}
+				handleLauncherReset();
 				break;
 			case MSG_CLOSE:
-				log.info("Close connections");
-				open = false;
-				handler.sendEmptyMessage(MSG_CLOSE_CONNECTION);
+				handleClose();
 				break;
 		}
 		return true;
+	}
+
+	private void handleClose() {
+		log.info("Close connections");
+		open = false;
+		handler.sendEmptyMessage(MSG_CLOSE_CONNECTION);
+	}
+
+	private void handleLauncherReset() {
+		launcherState.updateLauncherState(Launcher.State.BUSY);
+		try {
+			launcherController.send(launcher, new Message().setType(Type.RESET));
+			for (LaunchTube launchTube : launcher.getLaunchTubes()) {
+				launchTube.setState(LaunchTube.State.ARMED);
+			}
+		} catch (Exception e) {
+			log.error("Failed to reset", e);
+		} finally {
+			launcherState.updateLauncherState(Launcher.State.IDLE);
+		}
+	}
+
+	private void handleLauncherLaunch(android.os.Message msg) {
+		launcherState.updateLauncherState(Launcher.State.BUSY);
+		Launch launch = (Launch) msg.obj;
+		try {
+			launcherController.send(launcher, new Message().setPayload(launch));
+			LaunchTubeGroup launchTubes = launcher.getLaunchTubes();
+			for (SequenceItem i : launch.getSequence()) {
+				launchTubes.getAt(i.getTube()).setState(LaunchTube.State.FIRED);
+			}
+			launcherState.onLaunchComplete(launch);
+		} catch (Exception e) {
+			log.error("Failed to launch", e);
+			launcherState.onLaunchFailed(launch);
+		} finally {
+			launcherState.updateLauncherState(Launcher.State.IDLE);
+		}
+	}
+
+	private void handleLauncherInit() {
+		if (launcher == null || !launcher.getDevice().equals(connection.getDevice())) {
+			launcher = new Launcher(connection.getDevice());
+		}
+		launcher.setState(Launcher.State.BUSY);
+		try {
+			launcherState.onFound(launcher);
+			launcherController.send(connection, new Message().setType(Type.PING));
+		} catch (Exception e) {
+			log.error("Failed to get state", e);
+			handler.obtainMessage(MSG_CLOSE_CONNECTION, connection).sendToTarget();
+		} finally {
+			launcherState.updateLauncherState(Launcher.State.IDLE);
+		}
+	}
+
+	private void handleDestroyConnection() {
+		log.info("Remove connection");
+		Launcher old = launcher;
+		devices.remove(device);
+		device = null;
+		connection = null;
+		launcher = null;
+		if (old != null) {
+			old.setState(Launcher.State.CLOSED);
+			launcherState.onLost(old);
+		}
+	}
+
+	private void handleCreateConnection(android.os.Message msg) {
+		log.info("Add connection");
+		device = (BluetoothDevice) msg.obj;
+		devices.add(device);
+		connection = new Connection.Builder()
+				.setContext(LauncherService.this)
+				.setDevice(device)
+				.setTimeout(5000)
+				.setCallback(this::onStateChanged)
+				.build();
+		handler.obtainMessage(MSG_OPEN_CONNECTION, connection).sendToTarget();
+	}
+
+	private void handleCloseConnection() {
+		if (connection != null) {
+			connection.close();
+		}
+		launcherState.updateLauncherState(Launcher.State.CLOSED);
+	}
+
+	private void handleOpenConnection() {
+		if (connection != null) {
+			connection.open();
+		}
+		launcherState.updateLauncherState(Launcher.State.BUSY);
+	}
+
+	private void handleStopScan() {
+		scanner.stop();
+	}
+
+	private void handleStartScan() {
+		open = true;
+		scanner.scan();
+		handler.sendEmptyMessageDelayed(MSG_STOP_SCAN, 60000);
 	}
 
 	private void onStateChanged(Connection connection, State from, State to) {
@@ -248,9 +251,7 @@ public class LauncherService extends Service implements Handler.Callback {
 				handler.obtainMessage(MSG_REMOVE_CONNECTION, connection).sendToTarget();
 			}
 		}
-		if (launcherListener != null) {
-			launcherListener.onStateChanged(launcher);
-		}
+		launcherState.onStateChanged(launcher);
 	}
 
 	public static class LauncherController extends Binder {
@@ -283,11 +284,11 @@ public class LauncherService extends Service implements Handler.Callback {
 		}
 
 		public void setLauncherListener(LauncherListener l) {
-			service.launcherListener = l;
+			service.launcherState.setListener(l);
 		}
 
-		public void launch(List<SequenceItem> sequence) {
-			service.handler.obtainMessage(MSG_LAUNCH, sequence).sendToTarget();
+		public void launch(Launch launch) {
+			service.handler.obtainMessage(MSG_LAUNCH, launch).sendToTarget();
 		}
 
 		private Message send(Launcher launcher, Message req) throws Exception {
@@ -325,6 +326,61 @@ public class LauncherService extends Service implements Handler.Callback {
 
 		@Override
 		public void onScanFailed(Scanner scanner, int errorCode) {
+		}
+	}
+
+	private final class LauncherStateController implements LauncherListener {
+
+		private LauncherListener listener;
+
+		public void setListener(LauncherListener listener) {
+			this.listener = listener;
+		}
+
+		@Override
+		public void onFound(Launcher launcher) {
+			if (listener != null) {
+				listener.onFound(launcher);
+			}
+		}
+
+		@Override
+		public void onLost(Launcher launcher) {
+			if (listener != null) {
+				listener.onLost(launcher);
+			}
+		}
+
+		@Override
+		public void onLaunchComplete(Launch request) {
+			if (listener != null) {
+				listener.onLaunchComplete(request);
+			}
+		}
+
+		@Override
+		public void onLaunchFailed(Launch request) {
+			if (listener != null) {
+				listener.onLaunchFailed(request);
+			}
+		}
+
+		@Override
+		public void onStateChanged(Launcher launcher) {
+			if (listener != null) {
+				listener.onStateChanged(launcher);
+			}
+		}
+
+		public void updateLauncherState(Launcher.State newState) {
+			if (launcher != null) {
+				if (newState != null) {
+					launcher.setState(newState);
+				}
+				if (listener != null) {
+					listener.onStateChanged(launcher);
+				}
+			}
 		}
 	}
 }

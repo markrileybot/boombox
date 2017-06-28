@@ -36,6 +36,14 @@ public class SequenceItem implements Externalizable<SequenceItem> {
 	}
 
 	@Override
+	public String toString() {
+		return "SequenceItem{" +
+				"interval=" + interval +
+				", tube=" + tube +
+				'}';
+	}
+
+	@Override
 	public SequenceItem write(DataOutput buffer) throws IOException {
 		buffer.writeShort(interval);
 		buffer.writeShort(tube);

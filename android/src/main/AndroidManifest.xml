@@ -15,16 +15,16 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
 
-    <application android:icon="@drawable/icon"
-                 android:theme="@style/AppTheme"
-                 android:label="@string/title_activity_main">
+    <application
+            android:icon="@drawable/icon"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme">
         <activity
                 android:name=".MainActivity"
                 android:configChanges="orientation|screenLayout|screenSize"
-                android:label="@string/title_activity_main"
-                android:taskAffinity="boombox.android"
                 android:icon="@drawable/icon"
-        >
+                android:label="@string/title_activity_main"
+                android:taskAffinity="boombox.android">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
 
@@ -33,15 +33,6 @@
         </activity>
 
         <service android:name=".LauncherService"/>
-
-        <activity
-                android:name=".ConfigActivity"
-                android:label="@string/title_activity_config"
-                android:parentActivityName=".MainActivity2">
-            <meta-data
-                    android:name="android.support.PARENT_ACTIVITY"
-                    android:value="boombox.android.MainActivity2"/>
-        </activity>
     </application>
 
 </manifest>

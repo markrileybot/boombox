@@ -21,7 +21,7 @@ public class Launcher {
 	}
 
 	public String getName() {
-		return device.getName();
+		return device == null ? null : device.getAddress();
 	}
 
 	public LaunchTubeGroup getLaunchTubes() {

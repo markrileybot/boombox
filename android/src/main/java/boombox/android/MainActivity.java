@@ -1,34 +1,28 @@
 package boombox.android;
 
-import android.content.ComponentName;
+
+import android.app.Fragment;
+import android.app.FragmentManager;
 import android.content.Intent;
-import android.content.ServiceConnection;
 import android.os.Bundle;
-import android.os.IBinder;
+import android.support.v13.app.FragmentPagerAdapter;
+import android.support.v4.view.PagerTitleStrip;
+import android.support.v4.view.ViewPager;
+import android.support.v4.view.ViewPager.OnPageChangeListener;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.Toolbar;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.BaseAdapter;
-import android.widget.CompoundButton;
-import android.widget.CompoundButton.OnCheckedChangeListener;
-import android.widget.GridView;
-import android.widget.ToggleButton;
-import boombox.android.LauncherService.LauncherController;
-import boombox.android.blespp.Connection.State;
+import android.widget.ProgressBar;
 import boombox.android.proto.Launch;
-import boombox.android.proto.LaunchTube;
-import boombox.android.proto.SequenceItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.impl.ALogger;
 
-import java.util.ArrayList;
-import java.util.List;
-
-public class MainActivity extends AppCompatActivity implements LauncherListener {
+public class MainActivity extends AppCompatActivity implements LauncherListener, OnPageChangeListener {
 
 	static {
 		ALogger.setLevel(Log.VERBOSE);
@@ -36,23 +30,38 @@ public class MainActivity extends AppCompatActivity implements LauncherListener 
 
 	private static final Logger log = LoggerFactory.getLogger(MainActivity.class);
 
-	private final LauncherServiceConnection connection = new LauncherServiceConnection();
+	private final LauncherServiceConnection connection = new LauncherServiceConnection(this, this);
+	private Launcher launcher;
+	private Launch launch = new Launch();
 
-	private GridView tubeGroupView;
+	private ProgressBar loading;
 	private MenuItem fireButton;
 	private MenuItem resetButton;
 	private MenuItem progressButton;
-	private LauncherAdapter launcherAdapter;
-	private Launcher launcher;
+
+	private SectionsPagerAdapter pagerAdapter;
+	private ViewPager viewPager;
+	private LaunchEditFragment currentFragment;
+	private boolean enabled;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
-		setContentView(R.layout.activity_main);
 
-		launcherAdapter = new LauncherAdapter();
-		tubeGroupView = (GridView) findViewById(R.id.tube_group);
-		tubeGroupView.setAdapter(launcherAdapter);
+		setContentView(R.layout.activity_main);
+		setSupportActionBar((Toolbar) findViewById(R.id.toolbar));
+
+		pagerAdapter = new SectionsPagerAdapter(getFragmentManager());
+		viewPager = (ViewPager) findViewById(R.id.container);
+		viewPager.setAdapter(pagerAdapter);
+		viewPager.addOnPageChangeListener(this);
+
+		PagerTitleStrip titleStrip = (PagerTitleStrip) findViewById(R.id.pager_title_strip);
+		View prevChild = titleStrip.getChildAt(0);
+		View nextChild = titleStrip.getChildAt(titleStrip.getChildCount()-1);
+		prevChild.setOnClickListener(v -> viewPager.setCurrentItem(viewPager.getCurrentItem()-1, true));
+		nextChild.setOnClickListener(v -> viewPager.setCurrentItem(viewPager.getCurrentItem()+1, true));
+
 
 		if (PermissionUtils.checkPermissions(this)) {
 			connection.connect();
@@ -95,7 +104,9 @@ public class MainActivity extends AppCompatActivity implements LauncherListener 
 		fireButton = menu.findItem(R.id.fire);
 		resetButton = menu.findItem(R.id.reset);
 		progressButton = menu.findItem(R.id.busy);
-		setEnabled(false);
+		View actionView = progressButton.getActionView();
+		loading = (ProgressBar) actionView.findViewById(R.id.loading);
+		setEnabled(enabled);
 		return true;
 	}
 
@@ -103,24 +114,19 @@ public class MainActivity extends AppCompatActivity implements LauncherListener 
 	public boolean onOptionsItemSelected(MenuItem item) {
 		if (item.getItemId() == R.id.fire) {
 			// fire
-			List<LaunchTube> selection = launcherAdapter.getSelection();
-			if (!selection.isEmpty()) {
-				List<SequenceItem> launchSequence = new ArrayList<>(selection.size());
-				for (LaunchTube launchTube : selection) {
-					launchSequence.add(new SequenceItem((short) 100, launchTube.getPosition()));
-				}
-				connection.launch(launchSequence);
-				launcherAdapter.clearSelection();
-				int childCount = tubeGroupView.getChildCount();
-				for (int i = 0; i < childCount; i++) {
-					((ToggleButton)tubeGroupView.getChildAt(i)).setChecked(false);
-				}
+			Launch local = launch;
+			launch = new Launch();
+			if (currentFragment != null) {
+				currentFragment.setLaunch(launch);
+			}
+
+			if (!local.isEmpty()) {
+				connection.launch(local);
 			}
 		} else if (item.getItemId() == R.id.reset) {
 			// reset
 			connection.reset();
 		}
-		launcherAdapter.update();
 		return true;
 	}
 
@@ -128,6 +134,7 @@ public class MainActivity extends AppCompatActivity implements LauncherListener 
 	public void onFound(Launcher launcher) {
 		runOnUiThread(() -> {
 			this.launcher = launcher;
+			getSupportActionBar().setSubtitle(launcher.getName());
 			updateState();
 		});
 	}
@@ -136,6 +143,7 @@ public class MainActivity extends AppCompatActivity implements LauncherListener 
 	public void onLost(Launcher launcher) {
 		runOnUiThread(() -> {
 			this.launcher = null;
+			getSupportActionBar().setSubtitle(null);
 			updateState();
 		});
 	}
@@ -157,125 +165,83 @@ public class MainActivity extends AppCompatActivity implements LauncherListener 
 
 	private void updateState() {
 		setEnabled(launcher != null && launcher.getState() == Launcher.State.IDLE);
-		launcherAdapter.update();
+		if (currentFragment != null) {
+			currentFragment.setLauncher(launcher);
+			currentFragment.updateState();
+		}
 	}
 
 	private void setEnabled(boolean enabled) {
-		fireButton.setVisible(enabled);
-		resetButton.setVisible(enabled);
-		progressButton.setVisible(!enabled);
+		this.enabled = enabled;
+		if (fireButton != null) {
+			fireButton.setVisible(enabled);
+			resetButton.setVisible(enabled);
+			progressButton.setVisible(!enabled);
+			loading.setVisibility(enabled ? View.GONE : View.VISIBLE);
+		}
 	}
 
-	private final class LauncherAdapter extends BaseAdapter implements OnCheckedChangeListener {
-		private final List<LaunchTube> selection = new ArrayList<>(1);
-		private boolean ready;
+	@Override
+	public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {
+	}
 
-		public List<LaunchTube> getSelection() {
-			return selection;
+	@Override
+	public void onPageSelected(int position) {
+	}
+
+	@Override
+	public void onPageScrollStateChanged(int state) {
+		if (state == ViewPager.SCROLL_STATE_IDLE) {
+			updateState();
+		}
+	}
+
+	private final class SectionsPagerAdapter extends FragmentPagerAdapter {
+
+		private SectionsPagerAdapter(FragmentManager fm) {
+			super(fm);
 		}
 
-		public void update() {
-			ready = false;
-			if (launcher != null) {
-				tubeGroupView.setNumColumns(launcher.getLaunchTubes().getCols());
-				ready = connection.isConnected() && launcher.getState() == Launcher.State.IDLE;
+		@Override
+		public void setPrimaryItem(ViewGroup container, int position, Object object) {
+			super.setPrimaryItem(container, position, object);
+			LaunchEditFragment fragment = (LaunchEditFragment) object;
+			if (fragment != currentFragment) {
+				currentFragment = fragment;
+				currentFragment.setEnabled(enabled);
+				currentFragment.setLaunch(launch);
+				currentFragment.setLauncher(launcher);
+				currentFragment.setConnection(connection);
+				currentFragment.updateState();
 			}
-			notifyDataSetChanged();
+		}
+
+		@Override
+		public Fragment getItem(int position) {
+			switch (position) {
+				case 0: return new TubeSelectFragment();
+				case 1: return new IntervalSetFragment();
+				case 2: return new IntervalTapFragment();
+			}
+			return null;
 		}
 
 		@Override
 		public int getCount() {
-			return launcher == null ? 0 : launcher.getLaunchTubes().getSize();
+			return 3;
 		}
 
 		@Override
-		public Object getItem(int position) {
-			return launcher == null ? null : launcher.getLaunchTubes().getAt(position);
-		}
-
-		@Override
-		public long getItemId(int position) {
-			return position;
-		}
-
-		@Override
-		public View getView(int position, View convertView, ViewGroup parent) {
-			if (convertView == null) {
-				convertView = getLayoutInflater().inflate(R.layout.launch_tube_item, parent,false);
+		public CharSequence getPageTitle(int position) {
+			switch (position) {
+				case 0:
+					return "Select Them Tubes!";
+				case 1:
+					return "Set Them Intervals!";
+				case 2:
+					return "Tap Them Intervals!";
 			}
-			ToggleButton tubeButton = (ToggleButton) convertView.findViewById(R.id.position);
-			LaunchTube tube = launcher.getLaunchTubes().getAt(position);
-			String label = String.valueOf(tube.getPosition());
-			tubeButton.setTextOff(label);
-			tubeButton.setTextOn(label);
-			tubeButton.setText(label);
-			tubeButton.setEnabled(ready && tube.getState() != LaunchTube.State.FIRED);
-			tubeButton.setTag(tube);
-			tubeButton.setOnCheckedChangeListener(this);
-			return convertView;
-		}
-
-		@Override
-		public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-			if (isChecked) {
-				selection.add((LaunchTube) buttonView.getTag());
-			} else {
-				selection.remove(buttonView.getTag());
-			}
-		}
-
-		public void clearSelection() {
-			selection.clear();
-		}
-	}
-
-	private class LauncherServiceConnection implements ServiceConnection {
-
-		private LauncherController launcherController;
-		private boolean connected;
-
-		public void connect() {
-			log.warn("Binding to launcher service....");
-			if(bindService(new Intent(getApplicationContext(), LauncherService.class), this, BIND_AUTO_CREATE)) {
-			}
-		}
-
-		public void disconnect() {
-			unbindService(this);
-		}
-
-		@Override
-		public void onServiceConnected(ComponentName name, IBinder binder) {
-			log.warn("Service connected.  Scanning....");
-			connected = true;
-			launcherController = (LauncherController) binder;
-			launcherController.setLauncherListener(MainActivity.this);
-			launcherController.scan();
-		}
-
-		public State getState() {
-			return connected ? launcherController.getState() : null;
-		}
-
-		public void launch(List<SequenceItem> tubes) {
-			if (connected) {
-				launcherController.launch(tubes);
-			}
-		}
-
-		public void reset() {
-			if (connected) {
-				launcherController.reset();
-			}
-		}
-
-		@Override
-		public void onServiceDisconnected(ComponentName name) {
-			connected = false;
-		}
-
-		public boolean isConnected() {
-			return connected;
+			return null;
 		}
 	}
 }

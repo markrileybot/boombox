@@ -15,7 +15,7 @@
 
     <item
             android:id="@+id/busy"
-            android:actionLayout="@layout/launcher_progress"
+            app:actionLayout="@layout/launcher_progress"
             app:showAsAction="always"
             android:visible="false"
             android:title=""
