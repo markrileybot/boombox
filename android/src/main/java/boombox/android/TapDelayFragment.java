@@ -9,9 +9,7 @@ import android.view.ViewGroup;
 import boombox.android.proto.Launch;
 import boombox.android.proto.SequenceItem;
 
-import java.util.List;
-
-public class IntervalTapFragment extends LaunchEditFragment implements OnClickListener {
+public class TapDelayFragment extends LaunchEditFragment implements OnClickListener {
 
 	private int next = -1;
 	private long lastTapTime = 0;
@@ -19,7 +17,7 @@ public class IntervalTapFragment extends LaunchEditFragment implements OnClickLi
 
 	@Override
 	public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-		View rootView = inflater.inflate(R.layout.frag_interval_tap, container, false);
+		View rootView = inflater.inflate(R.layout.frag_delay_tap, container, false);
 		tapView = rootView.findViewById(R.id.tap);
 		tapView.setOnClickListener(this);
 		return rootView;
@@ -49,7 +47,7 @@ public class IntervalTapFragment extends LaunchEditFragment implements OnClickLi
 				next = 1;
 			} else if (next < launch.size()) {
 				SequenceItem sequenceItem = launch.get(next);
-				sequenceItem.setInterval((short) Math.min(Short.MAX_VALUE, Math.max(0, now - lastTapTime)));
+				sequenceItem.setDelay((short) Math.min(Short.MAX_VALUE, Math.max(0, now - lastTapTime)));
 				next++;
 			}
 			lastTapTime = now;

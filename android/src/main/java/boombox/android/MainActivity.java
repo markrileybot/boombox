@@ -220,8 +220,8 @@ public class MainActivity extends AppCompatActivity implements LauncherListener,
 		public Fragment getItem(int position) {
 			switch (position) {
 				case 0: return new TubeSelectFragment();
-				case 1: return new IntervalSetFragment();
-				case 2: return new IntervalTapFragment();
+				case 1: return new SetDelayFragment();
+				case 2: return new TapDelayFragment();
 			}
 			return null;
 		}
@@ -237,9 +237,9 @@ public class MainActivity extends AppCompatActivity implements LauncherListener,
 				case 0:
 					return "Select Them Tubes!";
 				case 1:
-					return "Set Them Intervals!";
+					return "Set Them Delays!";
 				case 2:
-					return "Tap Them Intervals!";
+					return "Tap Them Delays!";
 			}
 			return null;
 		}

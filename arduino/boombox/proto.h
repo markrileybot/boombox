@@ -36,7 +36,7 @@ typedef enum
 
 typedef struct
 {
-  uint16_t interval;
+  uint16_t delay;
   uint16_t tube;
 } sequence_item_t;
 

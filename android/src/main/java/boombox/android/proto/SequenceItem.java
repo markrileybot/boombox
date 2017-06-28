@@ -6,23 +6,23 @@ import java.io.IOException;
 
 public class SequenceItem implements Externalizable<SequenceItem> {
 
-	private short interval;
+	private short delay;
 	private byte tube;
 
 	public SequenceItem() {
 	}
 
-	public SequenceItem(short interval, byte tube) {
-		this.interval = interval;
+	public SequenceItem(short delay, byte tube) {
+		this.delay = delay;
 		this.tube = tube;
 	}
 
-	public short getInterval() {
-		return interval;
+	public short getDelay() {
+		return delay;
 	}
 
-	public SequenceItem setInterval(short interval) {
-		this.interval = interval;
+	public SequenceItem setDelay(short delay) {
+		this.delay = delay;
 		return this;
 	}
 
@@ -38,21 +38,21 @@ public class SequenceItem implements Externalizable<SequenceItem> {
 	@Override
 	public String toString() {
 		return "SequenceItem{" +
-				"interval=" + interval +
+				"delay=" + delay +
 				", tube=" + tube +
 				'}';
 	}
 
 	@Override
 	public SequenceItem write(DataOutput buffer) throws IOException {
-		buffer.writeShort(interval);
+		buffer.writeShort(delay);
 		buffer.writeShort(tube);
 		return this;
 	}
 
 	@Override
 	public SequenceItem read(DataInput buffer) throws IOException {
-		interval = buffer.readShort();
+		delay = buffer.readShort();
 		tube = (byte) buffer.readShort();
 		return this;
 	}

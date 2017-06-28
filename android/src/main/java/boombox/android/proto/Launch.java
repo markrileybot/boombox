@@ -56,13 +56,13 @@ public class Launch extends Payload<Launch> {
 		return this;
 	}
 
-	public long getIntervalBefore(SequenceItem item) {
+	public long getDelayBefore(SequenceItem item) {
 		long ret = 0;
 		for (SequenceItem sequenceItem : sequence) {
 			if (sequenceItem.getTube() == item.getTube()) {
 				break;
 			}
-			ret += sequenceItem.getInterval();
+			ret += sequenceItem.getDelay();
 		}
 		return ret;
 	}

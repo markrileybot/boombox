@@ -35,7 +35,7 @@
             android:layout_weight="1"
             android:dividerHeight="0dp"
             android:divider="@android:color/transparent"
-            android:id="@+id/interval_list">
+            android:id="@+id/delay_list">
     </ListView>
 
 </LinearLayout>

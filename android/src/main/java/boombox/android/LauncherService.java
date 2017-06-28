@@ -9,6 +9,7 @@ import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
+import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.NotificationCompat.Builder;
 import android.support.v4.app.NotificationManagerCompat;
 import boombox.android.blespp.Connection;
@@ -56,7 +57,7 @@ public class LauncherService extends Service implements Handler.Callback {
 	private State connectionState;
 
 	private NotificationManagerCompat notificationManager;
-	private Notification notification;
+	private NotificationCompat.Builder notificationBuilder;
 	private Scanner scanner;
 	private boolean open;
 
@@ -69,13 +70,13 @@ public class LauncherService extends Service implements Handler.Callback {
 	@Override
 	public void onCreate() {
 		notificationManager = NotificationManagerCompat.from(this);
-		notification = new Builder(this)
+		notificationBuilder = new Builder(this)
 				.setAutoCancel(false)
 				.setOngoing(true)
 				.setContentTitle("Launch Control")
-				.setContentText("Idle")
-				.setSmallIcon(R.drawable.icon)
-				.build();
+				.setContentText("...")
+				.setSmallIcon(R.drawable.icon);
+		Notification notification = notificationBuilder.build();
 		startForeground(1, notification);
 		notificationManager.notify(1, notification);
 		scanner = new Scanner(this, new ScannerCallback());
@@ -251,6 +252,10 @@ public class LauncherService extends Service implements Handler.Callback {
 				handler.obtainMessage(MSG_REMOVE_CONNECTION, connection).sendToTarget();
 			}
 		}
+		Notification notification = notificationBuilder
+				.setContentText((launcher == null ? "" : launcher.getName()) + " " + to)
+				.build();
+		notificationManager.notify(1, notification);
 		launcherState.onStateChanged(launcher);
 	}
 

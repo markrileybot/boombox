@@ -67,8 +67,8 @@ void launch_control_fire() {
     uint16_t i;
 
     for (i = 0; i < sequence->seq_size; i++, v++) {
-      if (v->interval > 0) {
-        delay(v->interval);
+      if (v->delay > 0) {
+        delay(v->delay);
       }
 #if RELAY_TYPE == RELAY_TYPE_4CH
       digitalWrite(PIN_START + v->tube, HIGH);
