@@ -77,7 +77,7 @@ void launch_control_fire() {
 #endif
     }
 
-    delay(1000);
+    delay(3000);
 
     v = (sequence_item_t*) (sequence + 1);
     for (i = 0; i < sequence->seq_size; i++, v++) {
