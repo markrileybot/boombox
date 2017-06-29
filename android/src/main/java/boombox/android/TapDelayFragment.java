@@ -6,6 +6,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.ViewGroup;
+import android.widget.TextView;
 import boombox.android.proto.Launch;
 import boombox.android.proto.SequenceItem;
 
@@ -13,12 +14,12 @@ public class TapDelayFragment extends LaunchEditFragment implements OnClickListe
 
 	private int next = -1;
 	private long lastTapTime = 0;
-	private View tapView;
+	private TextView tapView;
 
 	@Override
 	public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
 		View rootView = inflater.inflate(R.layout.frag_delay_tap, container, false);
-		tapView = rootView.findViewById(R.id.tap);
+		tapView = (TextView) rootView.findViewById(R.id.tap);
 		tapView.setOnClickListener(this);
 		return rootView;
 	}
@@ -27,6 +28,7 @@ public class TapDelayFragment extends LaunchEditFragment implements OnClickListe
 	public void updateState() {
 		lastTapTime = 0;
 		next = -1;
+		updateTapsRemaining();
 		super.updateState();
 	}
 
@@ -45,12 +47,22 @@ public class TapDelayFragment extends LaunchEditFragment implements OnClickListe
 			long now = SystemClock.elapsedRealtime();
 			if (next == -1) {
 				next = 1;
-			} else if (next < launch.size()) {
+			} else if (next < launch.getSize()) {
 				SequenceItem sequenceItem = launch.get(next);
 				sequenceItem.setDelay((short) Math.min(Short.MAX_VALUE, Math.max(0, now - lastTapTime)));
 				next++;
 			}
 			lastTapTime = now;
+			updateTapsRemaining();
+		}
+	}
+
+	private void updateTapsRemaining() {
+		if (tapView != null) {
+			Launch launch = getLaunch();
+			int size = launch.getSize();
+			int tappedTimes = Math.max(next, 0);
+			tapView.setText("Tap " + (size - tappedTimes) + " more time(s)!");
 		}
 	}
 }

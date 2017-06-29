@@ -12,30 +12,20 @@ import android.widget.TextView;
 import boombox.android.proto.Launch;
 import boombox.android.proto.SequenceItem;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class SetDelayFragment extends LaunchEditFragment implements OnSeekBarChangeListener {
 
 	private final DelayAdapter delayAdapter = new DelayAdapter();
-	private final List<SeekBar> seekBars = new ArrayList<>(1);
 	private SeekBar totalTime;
-	private int maxProgress;
+	private ListView delayList;
 
 	@Override
 	public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
 		View rootView = inflater.inflate(R.layout.frag_delay_set, container, false);
 		totalTime = (SeekBar) rootView.findViewById(R.id.total_time);
 		totalTime.setOnSeekBarChangeListener(this);
-		ListView delayList = (ListView) rootView.findViewById(R.id.delay_list);
+		delayList = (ListView) rootView.findViewById(R.id.delay_list);
 		delayList.setAdapter(delayAdapter);
 		return rootView;
-	}
-
-	@Override
-	public void onPause() {
-		super.onPause();
-		seekBars.clear();
 	}
 
 	@Override
@@ -47,33 +37,50 @@ public class SetDelayFragment extends LaunchEditFragment implements OnSeekBarCha
 	@Override
 	public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
 		if (fromUser) {
+			TextView valueText = (TextView) ((View) seekBar.getParent()).findViewById(R.id.delay_value);
 			if (seekBar == totalTime) {
+				valueText.setText(formatDelay(progress));
 				updateTotalTime(progress);
 			} else {
 				SequenceItem item = (SequenceItem) seekBar.getTag();
-				long delayBefore = getLaunch().getDelayBefore(item);
+				int delayBefore = getLaunch().getDelayBefore(item);
+				if (progress < delayBefore) progress = delayBefore;
+				valueText.setText(formatDelay(item, progress));
 				item.setDelay((short) (progress - delayBefore));
-				maxProgress = Math.max(totalTime.getProgress(), Math.max(progress, maxProgress));
+				seekBar.setProgress(progress);
 				updateFollowingDelay(item);
 			}
 		}
 	}
 
 	private void updateTotalTime(int time) {
-		for (SeekBar bar : seekBars) {
-			bar.setMax(time);
+		int childCount = delayList.getChildCount();
+		for (int i = 0; i < childCount; i++) {
+			View childAt = delayList.getChildAt(i);
+			SeekBar bar = (SeekBar) childAt.findViewById(R.id.delay);
+			if (bar != null) {
+				bar.setMax(time);
+			}
 		}
 	}
 
 	private void updateFollowingDelay(SequenceItem item) {
 		Launch launch = getLaunch();
 		boolean found = false;
-		for (SeekBar bar : seekBars) {
-			SequenceItem next = (SequenceItem) bar.getTag();
-			if (!found) {
-				found = next == item;
-			} else if (next != null) {
-				bar.setProgress((int) (launch.getDelayBefore(next) + next.getDelay()));
+		int childCount = delayList.getChildCount();
+		for (int i = 0; i < childCount; i++) {
+			View childAt = delayList.getChildAt(i);
+			SeekBar bar = (SeekBar) childAt.findViewById(R.id.delay);
+			if (bar != null) {
+				SequenceItem next = (SequenceItem) bar.getTag();
+				if (!found) {
+					found = next == item;
+				} else if (next != null) {
+					int l = launch.getDelayBefore(next) + next.getDelay();
+					bar.setProgress(l);
+					((TextView) childAt.findViewById(R.id.delay_value))
+							.setText(formatDelay(next, l));
+				}
 			}
 		}
 	}
@@ -96,7 +103,7 @@ public class SetDelayFragment extends LaunchEditFragment implements OnSeekBarCha
 
 		@Override
 		public int getCount() {
-			return getLaunch().size();
+			return getLaunch().getSize();
 		}
 
 		@Override
@@ -116,20 +123,26 @@ public class SetDelayFragment extends LaunchEditFragment implements OnSeekBarCha
 			if (convertView == null) {
 				convertView = getActivity().getLayoutInflater()
 						.inflate(R.layout.delay_set_item, parent,false);
-				seekBars.add((SeekBar) convertView.findViewById(R.id.delay));
 			}
 
-			((TextView) convertView.findViewById(R.id.tube)).setText(
-					String.valueOf(sequenceItem.getTube()));
+			int progress = getLaunch().getDelayBefore(sequenceItem) + sequenceItem.getDelay();
+			((TextView) convertView.findViewById(R.id.delay_value)).setText(formatDelay(sequenceItem, progress));
 
-			int progress = (int) (getLaunch().getDelayBefore(sequenceItem) + sequenceItem.getDelay());
 			SeekBar seekBar = (SeekBar) convertView.findViewById(R.id.delay);
 			seekBar.setTag(sequenceItem);
-			seekBar.setMax(Math.max(progress + 1000, totalTime.getProgress()));
+			seekBar.setMax(totalTime.getProgress());
 			seekBar.setProgress(progress);
 			seekBar.setOnSeekBarChangeListener(SetDelayFragment.this);
 			seekBar.setEnabled(SetDelayFragment.this.isEnabled());
 			return convertView;
 		}
+	}
+
+	private static String formatDelay(SequenceItem item, long progress) {
+		return "#" + item.getTube() + " after " + formatDelay(progress);
+	}
+
+	private static String formatDelay(long progress) {
+		return String.valueOf(progress / 1000f) + "s";
 	}
 }

@@ -31,7 +31,7 @@ public class Launch extends Payload<Launch> {
 		return sequenceMap.get(tube);
 	}
 
-	public int size() {
+	public int getSize() {
 		return sequence.size();
 	}
 
@@ -56,8 +56,8 @@ public class Launch extends Payload<Launch> {
 		return this;
 	}
 
-	public long getDelayBefore(SequenceItem item) {
-		long ret = 0;
+	public int getDelayBefore(SequenceItem item) {
+		int ret = 0;
 		for (SequenceItem sequenceItem : sequence) {
 			if (sequenceItem.getTube() == item.getTube()) {
 				break;

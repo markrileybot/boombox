@@ -1,21 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              android:orientation="horizontal"
+              android:orientation="vertical"
               android:layout_width="match_parent"
               android:layout_height="wrap_content"
-              android:layout_margin="10dp">
+              android:padding="10dp"
+>
 
+    <SeekBar android:layout_width="match_parent"
+             android:layout_height="wrap_content"
+             android:id="@+id/delay"
+             android:max="20000"
+             android:progress="10000"
+    />
     <TextView android:layout_width="wrap_content"
               android:layout_height="match_parent"
-              android:gravity="center_vertical"
-              android:id="@+id/tube"
-    />
-
-    <SeekBar android:layout_width="0dp"
-             android:layout_height="50dp"
-             android:layout_weight="1"
-             android:id="@+id/delay"
-             android:max="60000"
+              android:layout_gravity="end"
+              android:id="@+id/delay_value"
+              android:text="6.5s"
     />
 
 </LinearLayout>
