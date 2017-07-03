@@ -94,6 +94,7 @@ public class LauncherService extends Service implements Handler.Callback {
 	@Override
 	public boolean onUnbind(Intent intent) {
 		launcherController.close();
+		stopForeground(true);
 		return false;
 	}
 
